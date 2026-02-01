@@ -17,7 +17,7 @@ use windows::{
         ShellExecuteExW, SEE_MASK_NOASYNC, SEE_MASK_NOCLOSEPROCESS,
         SHELLEXECUTEINFOW,
       },
-      Input::KeyboardAndMouse::{GetAsyncKeyState, VK_MENU},
+      Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON, VK_MENU},
       WindowsAndMessaging::{
         CreateWindowExW, DispatchMessageW, GetAncestor, GetCursorPos,
         GetDesktopWindow, GetForegroundWindow, GetMessageW,
@@ -66,9 +66,13 @@ impl Platform {
   /// Checks if the Alt key is currently held down.
   #[must_use]
   pub fn is_alt_down() -> bool {
-    // GetAsyncKeyState returns a SHORT (i16). If the most significant bit is set,
-    // the key is down. In 2's complement, this means the value is negative.
     unsafe { GetAsyncKeyState(i32::from(VK_MENU.0)) < 0 }
+  }
+
+  /// Checks if the Left Mouse Button is currently held down.
+  #[must_use]
+  pub fn is_lbutton_down() -> bool {
+    unsafe { GetAsyncKeyState(i32::from(VK_LBUTTON.0)) < 0 }
   }
 
   /// Gets a vector of available monitors as `NativeMonitor` instances
