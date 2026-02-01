@@ -63,6 +63,7 @@ pub struct GeneralConfig {
   pub config_reload_commands: Vec<InvokeCommand>,
   pub hide_method: HideMethod,
   pub show_all_in_taskbar: bool,
+  // [Added] Animation configuration
   pub animations: AnimationConfig,
 }
 
@@ -82,6 +83,7 @@ impl Default for GeneralConfig {
   }
 }
 
+// [Added] Struct for animation settings
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(default, rename_all(serialize = "camelCase"))]
 pub struct AnimationConfig {
@@ -94,8 +96,8 @@ impl Default for AnimationConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            duration_ms: 150,
-            fps: 144, 
+            duration_ms: 150, // Default to a snappy but smooth feel
+            fps: 144, // High refresh rate by default
         }
     }
 }
@@ -282,16 +284,17 @@ pub enum MatchType {
 }
 
 impl MatchType {
-  #[must_use]
   pub fn is_match(&self, value: &str) -> bool {
     match self {
       MatchType::Equals { equals } => value == equals,
       MatchType::Includes { includes } => value.contains(includes),
       MatchType::Regex { regex } => regex::Regex::new(regex)
-        .is_ok_and(|re| re.is_match(value)),
+        .map(|re| re.is_match(value))
+        .unwrap_or(false),
       MatchType::NotEquals { not_equals } => value != not_equals,
       MatchType::NotRegex { not_regex } => regex::Regex::new(not_regex)
-        .is_ok_and(|re| !re.is_match(value)),
+        .map(|re| !re.is_match(value))
+        .unwrap_or(false),
     }
   }
 }
