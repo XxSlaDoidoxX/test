@@ -47,7 +47,7 @@ pub struct WmState {
 
   // Map to store active animation tasks
   pub animation_handles: HashMap<isize, JoinHandle<()>>,
-
+  
   // Drag state for Alt+Drag
   pub drag_state: Option<DragState>,
 }
