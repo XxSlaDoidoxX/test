@@ -249,7 +249,7 @@ fn redraw_containers(
     let native_window = window.native().clone();
     
     // Check if this window is currently being dragged
-    let is_dragging = state.drag_state.as_ref().map_or(false, |d| d.window_id == window.id());
+    let is_dragging = state.drag_state.as_ref().is_some_and(|d| d.window_id == window.id());
 
     // Animation Logic
     // We animate only if:
@@ -517,3 +517,4 @@ fn apply_transparency_effect(
 
   _ = window.native().set_transparency(transparency);
 }
+
