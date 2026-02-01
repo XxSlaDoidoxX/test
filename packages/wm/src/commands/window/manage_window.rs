@@ -7,11 +7,11 @@ use wm_platform::{NativeWindow, Platform};
 
 use crate::{
   commands::{
-    container::{attach_container, set_focused_descendant, wrap_in_split_container},
+    container::{attach_container, set_focused_descendant, wrap_in_split_container, set_tiling_direction},
     window::run_window_rules,
   },
   models::{
-    Container, DirectionContainer, Monitor, NonTilingWindow, TilingWindow, WindowContainer, SplitContainer
+    Container, Monitor, NonTilingWindow, TilingWindow, WindowContainer, SplitContainer
   },
   traits::{CommonGetters, PositionGetters, WindowGetters, TilingDirectionGetters},
   user_config::UserConfig,
@@ -204,7 +204,7 @@ fn window_state_to_create(
   Ok(WindowState::default_from_config(&config.value))
 }
 
-#[allow(clippy::cast_precision_loss)]
+// [Modified] Dynamic Tiling Logic
 fn insertion_target(
   window_state: &WindowState,
   state: &mut WmState,
@@ -244,47 +244,39 @@ fn insertion_target(
                        };
 
                        let parent = focused_tiling.parent().context("No parent")?;
-                       
-                       // Need to check direction of parent. Convert Container to DirectionContainer to access trait.
-                       let parent_dir_container: Option<DirectionContainer> = parent.clone().try_into().ok();
+                       let current_dir = parent.tiling_direction();
 
-                       if let Some(dir_container) = parent_dir_container {
-                           let current_dir = dir_container.tiling_direction();
-
-                           if current_dir == desired_dir {
-                               // Same direction, just insert next to it
-                               let index = focused_tiling.index();
-                               // Replaced if/else with usize::from
-                               let offset = usize::from(insert_after);
-                               return Ok((parent, index + offset));
-                           } 
-                           
-                           // Different direction.
-                           // Optimization: If parent only has 1 child, we can just flip the parent's direction
+                       if current_dir == desired_dir {
+                           // Same direction, just insert next to it
+                           let index = focused_tiling.index();
+                           return Ok((parent, if insert_after { index + 1 } else { index }));
+                       } else {
+                           // Different direction, need to wrap focused window
+                           // If the parent only has 1 child (the focused one), we can just change the direction!
                            if parent.child_count() == 1 {
-                                dir_container.set_tiling_direction(desired_dir);
-                                state.pending_sync.queue_container_to_redraw(parent.clone());
-                                // Replaced if/else with usize::from
-                                return Ok((parent, usize::from(insert_after)));
+                                set_tiling_direction(&parent, state, config, &desired_dir)?;
+                                return Ok((parent, if insert_after { 1 } else { 0 }));
                            } 
+
+                           // Else, wrap in new split container
+                           let split = SplitContainer::new(
+                               None,
+                               desired_dir,
+                               None,
+                               Vec::new(),
+                               None
+                           );
+                           
+                           // Wrap focused window
+                           wrap_in_split_container(
+                               &split, 
+                               &parent, 
+                               &[focused_tiling.clone()]
+                           )?;
+
+                           // Return the new split container as parent
+                           return Ok((split.into(), if insert_after { 1 } else { 0 }));
                        }
-
-                       // Fallback / standard wrap logic if directions mismatch and parent has multiple children
-                       let gaps_config = config.value.gaps.clone();
-                       let split = SplitContainer::new(
-                           desired_dir,
-                           gaps_config
-                       );
-                       
-                       // Wrap focused window in the new split
-                       wrap_in_split_container(
-                           &split, 
-                           &parent, 
-                           std::slice::from_ref(&focused_tiling)
-                       )?;
-
-                       // Return the new split container as parent
-                       return Ok((split.into(), usize::from(insert_after)));
                   }
               }
           }
