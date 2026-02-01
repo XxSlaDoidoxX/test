@@ -6,7 +6,7 @@ use wm_common::{
   CornerStyle, CursorJumpTrigger, DisplayState, HideMethod, OpacityValue,
   UniqueExt, WindowEffectConfig, WindowState, WmEvent,
 };
-use wm_platform::{Platform, ZOrder};
+use wm_platform::{Platform, ZOrder, NativeWindow};
 
 use crate::{
   models::{Container, WindowContainer},
@@ -216,12 +216,6 @@ fn redraw_containers(
       continue;
     }
 
-    // Capture previous state to determine if we should snap or animate
-    let was_visible = matches!(
-        window.display_state(),
-        DisplayState::Showing | DisplayState::Shown
-    );
-
     window.set_display_state(
       match (window.display_state(), workspace.is_displayed()) {
         (DisplayState::Hidden | DisplayState::Hiding, true) => {
@@ -247,41 +241,32 @@ fn redraw_containers(
     let has_pending_dpi = window.has_pending_dpi_adjustment();
     let window_state = window.state().clone();
     let native_window = window.native().clone();
-
-    // Check if this window is currently being dragged
-    let is_dragging = state.drag_state.as_ref().is_some_and(|d| d.window_id == window.id());
-
-    // Animation Logic
-    // We animate only if:
-    // 1. Animations are enabled config-wise.
-    // 2. The window is visible.
-    // 3. The window was ALREADY visible (prevents "fly-in" on spawn).
-    // 4. The window is NOT being dragged (prevents fighting cursor).
-    if config.value.general.animations.enabled
-       && is_visible
-       && was_visible
-       && !is_dragging
-    {
+    
+    // [Modified] Animation Logic
+    // If animations are enabled, we spawn a task to interpolate movement
+    if config.value.general.animations.enabled && is_visible {
+        // Cancel existing animation for this window if any
         if let Some(handle) = state.animation_handles.remove(&native_window.handle) {
             handle.abort();
         }
 
         let animation_config = config.value.general.animations.clone();
-
+        
+        // Spawn animation task
         let task = task::spawn(async move {
              let start_rect = match native_window.frame_position() {
                  Ok(r) => r,
                  Err(_) => rect.clone()
              };
-
+             
              let end_rect = rect;
-
-             // If basically same, skip
-             if (start_rect.x() - end_rect.x()).abs() < 2 &&
+             
+             // If positions are basically the same, skip animation
+             if (start_rect.x() - end_rect.x()).abs() < 2 && 
                 (start_rect.y() - end_rect.y()).abs() < 2 &&
                 (start_rect.width() - end_rect.width()).abs() < 2 &&
                 (start_rect.height() - end_rect.height()).abs() < 2 {
-
+                 
                  let _ = native_window.set_position(
                     &window_state,
                     &end_rect,
@@ -293,22 +278,19 @@ fn redraw_containers(
                  return;
              }
 
-             let _duration = Duration::from_millis(animation_config.duration_ms);
+             let duration = Duration::from_millis(animation_config.duration_ms);
              let fps = animation_config.fps;
              let interval_ms = 1000 / fps;
-             #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_precision_loss)]
              let steps = (animation_config.duration_ms as f64 / interval_ms as f64) as u32;
-
+             
              let mut interval = tokio::time::interval(Duration::from_millis(interval_ms));
-
+             
              for i in 1..=steps {
                  interval.tick().await;
-                 #[allow(clippy::cast_precision_loss)]
                  let t = i as f32 / steps as f32;
-                 // Easing: Cubic Out (1 - (1-t)^3)
-                 let t = 1.0 - (1.0 - t).powi(3);
-
-                 #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
+                 // Easing: Cubic Out (1 - (1-t)^3) or similar
+                 let t = 1.0 - (1.0 - t).powi(3); 
+                 
                  let cur_rect = wm_common::Rect::from_ltrb(
                      (start_rect.left as f32 + (end_rect.left as f32 - start_rect.left as f32) * t) as i32,
                      (start_rect.top as f32 + (end_rect.top as f32 - start_rect.top as f32) * t) as i32,
@@ -325,7 +307,8 @@ fn redraw_containers(
                     has_pending_dpi,
                  );
              }
-
+             
+             // Ensure final position is exact
              let _ = native_window.set_position(
                 &window_state,
                 &end_rect,
@@ -335,16 +318,11 @@ fn redraw_containers(
                 has_pending_dpi,
              );
         });
-
+        
         state.animation_handles.insert(window.native().handle, task);
-
+        
     } else {
-        // Fallback (Instant Snap)
-        // If dragging, or just spawned, or animations disabled
-        if let Some(handle) = state.animation_handles.remove(&native_window.handle) {
-            handle.abort();
-        }
-
+        // Fallback to instant move
         if let Err(err) = native_window.set_position(
           &window.state(),
           &rect,
