@@ -1,0 +1,61 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      draft-release:
+        type: boolean
+        default: true
+        description: Whether to publish the release as a draft.
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: release
+
+jobs:
+  package:
+    uses: ./.github/workflows/package.yaml
+    secrets: inherit
+
+  release:
+    needs: [package]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download installers
+        uses: actions/download-artifact@v4
+        with:
+          name: installers
+          path: out/
+
+      - name: Semantic release
+        uses: glzr-io/actions/semantic-release@main
+        with:
+          gh-publish: true
+          gh-draft-release: ${{ inputs.draft-release }}
+          gh-token: ${{ github.token }}
+          gh-assets: |
+            [
+              {
+                "path": "out/installer-universal.exe",
+                "name": "glazewm-${nextRelease.gitTag}.exe",
+                "label": "${nextRelease.gitTag} Installer (standard)"
+              },
+              {
+                "path": "out/installer-x64.msi",
+                "name": "standalone-glazewm-${nextRelease.gitTag}-x64.msi",
+                "label": "${nextRelease.gitTag} Standalone Installer (x64)"
+              },
+              {
+                "path": "out/installer-arm64.msi",
+                "name": "standalone-glazewm-${nextRelease.gitTag}-arm64.msi",
+                "label": "${nextRelease.gitTag} Standalone Installer (arm64)"
+              }
+            ]
